@@ -1,0 +1,6 @@
+{
+  "name": "PharosKG Bio-Agent Workbench",
+  "description": "Autonomous AI Agent Knowledge Graph Construction, Ontology Alignment, Pruning, and GNN Link Prediction Workbench for the Global Bio-Agent KG Challenge.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
