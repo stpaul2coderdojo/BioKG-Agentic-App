@@ -22,7 +22,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 
-type ActiveSection = 'workbench' | 'benchmark' | 'ontology' | 'challenge';
+type ActiveSection = 'workbench' | 'benchmark' | 'ontology' | 'challenge' | 'docs';
 type BottomTrayTab = 'edge_matrix' | 'cypher_query' | 'raw_csv';
 
 interface DeepEdgeAudit {
@@ -520,6 +520,20 @@ export default function App() {
           >
             Challenge & Resources
           </a>
+          <a
+            href="#docs"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveSection('docs');
+            }}
+            className={`py-0.5 transition-colors whitespace-nowrap border-b-2 ${
+              activeSection === 'docs'
+                ? 'border-cyan-600 text-slate-900 font-semibold'
+                : 'border-transparent hover:text-slate-900 hover:border-slate-300'
+            }`}
+          >
+            README & Docs
+          </a>
         </nav>
 
         {/* Zone 3: 2 primary actions */}
@@ -552,6 +566,7 @@ export default function App() {
             ['benchmark', 'GNN Benchmark'],
             ['ontology', 'OBO & Rubric'],
             ['challenge', 'Challenge Info'],
+            ['docs', 'README & Docs'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -1611,12 +1626,172 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* =====================================================================
+            VIEW 5: README & ARCHITECTURAL DOCUMENTATION
+           ===================================================================== */}
+        {activeSection === 'docs' && (
+          <div className="space-y-6">
+            {/* Authorship & Document Header */}
+            <div className="bg-white border border-slate-200 p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div>
+                <div className="text-xs font-mono text-cyan-700">
+                  SYSTEM DOCUMENTATION & REPOSITORY README · OPEN SOURCE TRACK
+                </div>
+                <h2 className="text-xl font-semibold text-slate-900 mt-1">
+                  PharosKG Bio-Agent Workbench — Technical Documentation
+                </h2>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-700 font-mono">
+                  <span>
+                    AUTHOR: <strong className="text-slate-900">Dr. Bheemaiah Anil Kumar</strong>
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    ORGANIZATION: <strong className="text-slate-900">Synergy Robotics, Seattle</strong>
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>CHALLENGE: Bio-Agent KG Construction (Oct 6 – Nov 17, 2026)</span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const readmeMarkdown = `# PharosKG Bio-Agent Workbench\n\n**Author:** Dr. Bheemaiah Anil Kumar  \n**Organization:** Synergy Robotics, Seattle, WA  \n**Competition:** Global Bio-Agent Knowledge Graph Construction Challenge (Oct 6 – Nov 17, 2026)\n\n## Overview\nAutonomous 5-stage AI Agent workbench (Ingest, Filter, Clean/Prune, Limit, Maintain) built for NIH Pharos structured datasets and OBO Foundry / Monarch BioLink standards (SO_0001217, PR_000000001, so#translates_to).\n`;
+                  const blob = new Blob([readmeMarkdown], { type: 'text/markdown' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = 'README.md';
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded transition-colors whitespace-nowrap flex items-center gap-1.5 self-start lg:self-center"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download README.md
+              </button>
+            </div>
+
+            {/* Architecture & 5-Stage Loop Documentation */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div className="lg:col-span-7 bg-white border border-slate-200 p-6 space-y-4">
+                <h3 className="text-base font-semibold text-slate-900 border-b border-slate-200 pb-2">
+                  01. Autonomous 5-Stage Bio-Agent Architecture
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Designed and architected by <strong>Dr. Bheemaiah Anil Kumar (Synergy Robotics, Seattle)</strong>,
+                  PharosKG addresses the core challenge of democratizing biomedical Knowledge Graph
+                  construction for bench scientists. Instead of requiring manual RDF/SPARQL curation,
+                  an autonomous agent swarm executes five closed-loop stages:
+                </p>
+
+                <div className="space-y-3 text-xs text-slate-700">
+                  <div className="p-3 bg-[#F8FAFC] border border-slate-200">
+                    <strong className="text-slate-900 font-mono">
+                      Stage 01 · Ingest (Tabular Omics to OBO Triples):
+                    </strong>{' '}
+                    Parses heterogeneous CSV/TSV experimental bioactivity tables from NIH Pharos (
+                    <code className="font-mono">Tclin</code>, <code className="font-mono">Tchem</code>,{' '}
+                    <code className="font-mono">Tbio</code>, <code className="font-mono">Tdark</code>)
+                    and promotes generic <code className="font-mono">SO_0000704</code> gene loci to
+                    specific <code className="font-mono text-cyan-800">SO_0001217</code> (
+                    <code className="font-mono">protein_coding_gene</code>).
+                  </div>
+                  <div className="p-3 bg-[#F8FAFC] border border-slate-200">
+                    <strong className="text-slate-900 font-mono">
+                      Stage 02 · Filter (Plain-Language to Subgraph Query):
+                    </strong>{' '}
+                    Converts natural-language research hypotheses into multi-hop Cypher/SPARQL queries
+                    with explicit OBO Foundry URI constraints.
+                  </div>
+                  <div className="p-3 bg-[#F8FAFC] border border-slate-200">
+                    <strong className="text-slate-900 font-mono">
+                      Stage 03 · Clean & Prune (GNN + Literature Reweighting):
+                    </strong>{' '}
+                    Combines Relational Graph Convolutional Network (RGCN) topological message passing
+                    with GTEx tissue expression and CRAPome mass-spectrometry contaminant checks to
+                    prune false-positive edges (e.g. <code className="font-mono">ALB</code> serum
+                    artifacts and ectopically expressed <code className="font-mono">OR2A4</code> Y2H
+                    noise).
+                  </div>
+                  <div className="p-3 bg-[#F8FAFC] border border-slate-200">
+                    <strong className="text-slate-900 font-mono">
+                      Stage 04 · Limit (Subgraph Cardinality Governance):
+                    </strong>{' '}
+                    Applies dynamic degree and relevance bounds to keep queryable subgraphs responsive
+                    on local researcher hardware.
+                  </div>
+                  <div className="p-3 bg-[#F8FAFC] border border-slate-200">
+                    <strong className="text-slate-900 font-mono">
+                      Stage 05 · Maintain (Incremental Literature & Pharos Delta):
+                    </strong>{' '}
+                    Continuously ingests newly published PubMed preprints and Pharos target updates
+                    without rebuilding the baseline graph.
+                  </div>
+                </div>
+              </div>
+
+              <div className="lg:col-span-5 space-y-6">
+                <div className="bg-white border border-slate-200 p-6 space-y-3">
+                  <h3 className="text-base font-semibold text-slate-900 border-b border-slate-200 pb-2">
+                    02. Ontological Disambiguation & GNN Recall
+                  </h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    In uncurated public graphs, genes and their translated protein products are
+                    frequently collapsed into a single generic node, conflating transcriptional GWAS
+                    signals with post-translational kinase inhibition (<code className="font-mono">Kd, IC50</code>).
+                  </p>
+                  <div className="p-3 bg-[#0B0E17] text-cyan-300 font-mono text-[11px] leading-relaxed">
+                    <div>Subject: http://purl.obolibrary.org/obo/SO_0001217</div>
+                    <div>Predicate: http://purl.obolibrary.org/obo/so#translates_to</div>
+                    <div>Object: http://purl.obolibrary.org/obo/PR_000000001</div>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Enforcing this canonical translation spine enables the GNN link predictor to
+                    achieve <strong>0.918 AUROC</strong> on held-out Pharos links compared to{' '}
+                    <strong>0.742 AUROC</strong> on the static baseline.
+                  </p>
+                </div>
+
+                <div className="bg-white border border-slate-200 p-6 space-y-3">
+                  <h3 className="text-base font-semibold text-slate-900 border-b border-slate-200 pb-2">
+                    03. Server-Side Agent API Specification
+                  </h3>
+                  <div className="space-y-2 text-xs font-mono">
+                    <div className="p-2.5 bg-[#F8FAFC] border border-slate-200">
+                      <div className="font-semibold text-slate-900">POST /api/agent/pipeline</div>
+                      <div className="text-slate-600 font-sans mt-0.5">
+                        Executes full 5-stage CSV ingestion, OBO URI promotion, GNN pruning, and
+                        held-out link prediction via Gemini 3.8 Flash.
+                      </div>
+                    </div>
+                    <div className="p-2.5 bg-[#F8FAFC] border border-slate-200">
+                      <div className="font-semibold text-slate-900">POST /api/agent/explain-edge</div>
+                      <div className="text-slate-600 font-sans mt-0.5">
+                        Traces multi-hop biological lineage and verifies OBO Foundry class parsimony
+                        for any selected edge.
+                      </div>
+                    </div>
+                    <div className="p-2.5 bg-[#F8FAFC] border border-slate-200">
+                      <div className="font-semibold text-slate-900">POST /api/agent/maintain-delta</div>
+                      <div className="text-slate-600 font-sans mt-0.5">
+                        Streams incremental PubMed / Pharos v3.19 delta nodes and edges into the live
+                        graph.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Quiet Clinical Footer */}
       <footer className="mt-12 border-t border-slate-200 bg-white px-6 py-4 text-xs text-slate-500 flex flex-wrap items-center justify-between gap-4">
         <div>
-          PharosKG Bio-Agent Workbench · Global Bio-Agent Knowledge Graph Construction Challenge (Oct 6 – Dec 15, 2026)
+          PharosKG Bio-Agent Workbench · Authored by <strong className="text-slate-800">Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle</strong> · Global Bio-Agent KG Challenge (2026)
         </div>
         <div className="flex items-center gap-4 font-mono text-[11px]">
           <a
