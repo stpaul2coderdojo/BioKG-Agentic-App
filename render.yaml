@@ -1,0 +1,21 @@
+# Render Blueprint (render.yaml)
+# Project: PharosKG Bio-Agent Workbench — Global Bio-Agent Knowledge Graph Construction Challenge
+# Author: Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle
+
+services:
+  - type: web
+    name: pharoskg-bio-agent-workbench
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: main
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: GEMINI_API_KEY
+        sync: false

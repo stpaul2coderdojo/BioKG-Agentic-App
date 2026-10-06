@@ -11,6 +11,11 @@ import {
 import { KnowledgeGraphCanvas } from './components/KnowledgeGraphCanvas';
 import { DualRocCurveChart, JudgingRadarChart } from './components/ScientificCharts';
 import {
+  IngestionAndSubgraphStudio,
+  InteractiveGnnBenchmarkRunner,
+  RenderBlueprintPanel,
+} from './components/IngestionSubgraphBenchmarkPanels';
+import {
   Play,
   Download,
   RefreshCw,
@@ -22,7 +27,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 
-type ActiveSection = 'workbench' | 'benchmark' | 'ontology' | 'challenge' | 'docs';
+type ActiveSection = 'workbench' | 'ingest_subgraph' | 'benchmark' | 'ontology' | 'challenge' | 'docs';
 type BottomTrayTab = 'edge_matrix' | 'cypher_query' | 'raw_csv';
 
 interface DeepEdgeAudit {
@@ -73,12 +78,30 @@ export default function App() {
   const [agentError, setAgentError] = useState<string | null>(null);
   const [deepEdgeAudits, setDeepEdgeAudits] = useState<Record<string, DeepEdgeAudit>>({});
   const [maintenanceLog, setMaintenanceLog] = useState<string[]>([]);
+  const [liveBenchmarkOverride, setLiveBenchmarkOverride] = useState<{
+    agentAuroc: number;
+    agentHitsAt10: number;
+    agentMrr: number;
+    rocCurve: Array<{ fpr: number; tprBaseline: number; tprAgent: number }>;
+  } | null>(null);
+
+  const activeBenchmarkMetrics = useMemo(() => {
+    if (!liveBenchmarkOverride) return currentPreset.benchmarkMetrics;
+    return {
+      ...currentPreset.benchmarkMetrics,
+      agentEnrichedAuroc: liveBenchmarkOverride.agentAuroc,
+      agentEnrichedHitsAt10: liveBenchmarkOverride.agentHitsAt10,
+      agentEnrichedMrr: liveBenchmarkOverride.agentMrr,
+      rocCurve: liveBenchmarkOverride.rocCurve,
+    };
+  }, [currentPreset, liveBenchmarkOverride]);
 
   // Switch preset handler
   const handleSelectPreset = (presetId: string) => {
     const found = PHAROS_PRESETS.find((p) => p.id === presetId);
     if (!found) return;
     setActivePresetId(presetId);
+    setLiveBenchmarkOverride(null);
     setNodes(found.nodes);
     setEdges(found.edges);
     setResearchQuestion(found.defaultResearchQuestion);
@@ -462,8 +485,8 @@ export default function App() {
           PharosKG
         </a>
 
-        {/* Zone 2: 4 clean text navigation links */}
-        <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-slate-600">
+        {/* Zone 2: 6 clean text navigation links */}
+        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
           <a
             href="#workbench"
             onClick={(e) => {
@@ -479,6 +502,20 @@ export default function App() {
             Agent Workbench
           </a>
           <a
+            href="#ingest-subgraph"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveSection('ingest_subgraph');
+            }}
+            className={`py-0.5 transition-colors whitespace-nowrap border-b-2 ${
+              activeSection === 'ingest_subgraph'
+                ? 'border-cyan-600 text-slate-900 font-semibold'
+                : 'border-transparent hover:text-slate-900 hover:border-slate-300'
+            }`}
+          >
+            Ingest & Subgraph
+          </a>
+          <a
             href="#benchmark"
             onClick={(e) => {
               e.preventDefault();
@@ -490,7 +527,7 @@ export default function App() {
                 : 'border-transparent hover:text-slate-900 hover:border-slate-300'
             }`}
           >
-            GNN Link Benchmark
+            GNN Benchmark
           </a>
           <a
             href="#ontology"
@@ -504,7 +541,7 @@ export default function App() {
                 : 'border-transparent hover:text-slate-900 hover:border-slate-300'
             }`}
           >
-            Ontology & Rubric Audit
+            OBO & Rubric
           </a>
           <a
             href="#challenge"
@@ -518,7 +555,7 @@ export default function App() {
                 : 'border-transparent hover:text-slate-900 hover:border-slate-300'
             }`}
           >
-            Challenge & Resources
+            Challenge Info
           </a>
           <a
             href="#docs"
@@ -532,7 +569,7 @@ export default function App() {
                 : 'border-transparent hover:text-slate-900 hover:border-slate-300'
             }`}
           >
-            README & Docs
+            README & Blueprint
           </a>
         </nav>
 
@@ -563,10 +600,11 @@ export default function App() {
         {(
           [
             ['workbench', 'Workbench'],
+            ['ingest_subgraph', 'Ingest & Subgraph'],
             ['benchmark', 'GNN Benchmark'],
             ['ontology', 'OBO & Rubric'],
             ['challenge', 'Challenge Info'],
-            ['docs', 'README & Docs'],
+            ['docs', 'README & Blueprint'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -1140,16 +1178,65 @@ export default function App() {
         )}
 
         {/* =====================================================================
+            VIEW 1B: DEDICATED INGESTION & SUBGRAPH QUERY STUDIO
+           ===================================================================== */}
+        {activeSection === 'ingest_subgraph' && (
+          <div className="space-y-6">
+            <IngestionAndSubgraphStudio
+              nodes={nodes}
+              edges={edges}
+              rawTabularData={rawTabularData}
+              onChangeRawTabularData={setRawTabularData}
+              onAddIngestedRow={(newNodes, newEdge, csvLine, summary) => {
+                if (newNodes.length > 0) {
+                  setNodes((prev) => [...prev, ...newNodes]);
+                }
+                setEdges((prev) => [newEdge, ...prev]);
+                setRawTabularData((prev) => `${prev.trim()}\n${csvLine}`);
+                setSelectedEdgeId(newEdge.id);
+                setAgentStatusBanner(summary);
+              }}
+              onRunFullPipeline={handleRunAgentPipeline}
+              isRunningPipeline={isRunningPipeline}
+              onSelectEdgeOnGraph={(edgeId) => {
+                setSelectedEdgeId(edgeId);
+                setActiveSection('workbench');
+              }}
+              onSelectNodeOnGraph={(nodeId) => {
+                setSelectedNodeId(nodeId);
+              }}
+              onUpdateCypherQuery={(cypher) => setCypherQuery(cypher)}
+            />
+          </div>
+        )}
+
+        {/* =====================================================================
             VIEW 2: GNN LINK PREDICTION BENCHMARK (PHAROS VS AGENT-ENRICHED KG)
            ===================================================================== */}
         {activeSection === 'benchmark' && (
           <div className="space-y-6">
+            {/* Interactive GNN Benchmark & Ablation Runner */}
+            <InteractiveGnnBenchmarkRunner
+              cohortTitle={currentPreset.title}
+              baseMetrics={currentPreset.benchmarkMetrics}
+              onUpdateBenchmarkMetrics={(updated) => {
+                setLiveBenchmarkOverride(updated);
+                setAgentStatusBanner(
+                  `GNN Benchmark Updated · Agent-Enriched AUROC = ${updated.agentAuroc.toFixed(
+                    3
+                  )} · Hits@10 = ${updated.agentHitsAt10.toFixed(3)} · MRR = ${updated.agentMrr.toFixed(
+                    3
+                  )}`
+                );
+              }}
+            />
+
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               <div className="lg:col-span-7 bg-white border border-slate-200 p-5">
                 <DualRocCurveChart
-                  data={currentPreset.benchmarkMetrics.rocCurve}
-                  baselineAuroc={currentPreset.benchmarkMetrics.pharosBaselineAuroc}
-                  agentAuroc={currentPreset.benchmarkMetrics.agentEnrichedAuroc}
+                  data={activeBenchmarkMetrics.rocCurve}
+                  baselineAuroc={activeBenchmarkMetrics.pharosBaselineAuroc}
+                  agentAuroc={activeBenchmarkMetrics.agentEnrichedAuroc}
                 />
               </div>
 
@@ -1181,16 +1268,16 @@ export default function App() {
                           Held-Out Link AUROC
                         </td>
                         <td className="py-2.5 text-right text-slate-600">
-                          {currentPreset.benchmarkMetrics.pharosBaselineAuroc.toFixed(3)}
+                          {activeBenchmarkMetrics.pharosBaselineAuroc.toFixed(3)}
                         </td>
                         <td className="py-2.5 text-right font-semibold text-cyan-700">
-                          {currentPreset.benchmarkMetrics.agentEnrichedAuroc.toFixed(3)}
+                          {activeBenchmarkMetrics.agentEnrichedAuroc.toFixed(3)}
                         </td>
                         <td className="py-2.5 text-right text-emerald-700">
                           +
                           {(
-                            currentPreset.benchmarkMetrics.agentEnrichedAuroc -
-                            currentPreset.benchmarkMetrics.pharosBaselineAuroc
+                            activeBenchmarkMetrics.agentEnrichedAuroc -
+                            activeBenchmarkMetrics.pharosBaselineAuroc
                           ).toFixed(3)}
                         </td>
                       </tr>
@@ -1199,16 +1286,16 @@ export default function App() {
                           Hits@10 (Top-10 Recall)
                         </td>
                         <td className="py-2.5 text-right text-slate-600">
-                          {currentPreset.benchmarkMetrics.pharosBaselineHitsAt10.toFixed(3)}
+                          {activeBenchmarkMetrics.pharosBaselineHitsAt10.toFixed(3)}
                         </td>
                         <td className="py-2.5 text-right font-semibold text-cyan-700">
-                          {currentPreset.benchmarkMetrics.agentEnrichedHitsAt10.toFixed(3)}
+                          {activeBenchmarkMetrics.agentEnrichedHitsAt10.toFixed(3)}
                         </td>
                         <td className="py-2.5 text-right text-emerald-700">
                           +
                           {(
-                            currentPreset.benchmarkMetrics.agentEnrichedHitsAt10 -
-                            currentPreset.benchmarkMetrics.pharosBaselineHitsAt10
+                            activeBenchmarkMetrics.agentEnrichedHitsAt10 -
+                            activeBenchmarkMetrics.pharosBaselineHitsAt10
                           ).toFixed(3)}
                         </td>
                       </tr>
@@ -1217,16 +1304,16 @@ export default function App() {
                           Mean Reciprocal Rank (MRR)
                         </td>
                         <td className="py-2.5 text-right text-slate-600">
-                          {currentPreset.benchmarkMetrics.pharosBaselineMrr.toFixed(3)}
+                          {activeBenchmarkMetrics.pharosBaselineMrr.toFixed(3)}
                         </td>
                         <td className="py-2.5 text-right font-semibold text-cyan-700">
-                          {currentPreset.benchmarkMetrics.agentEnrichedMrr.toFixed(3)}
+                          {activeBenchmarkMetrics.agentEnrichedMrr.toFixed(3)}
                         </td>
                         <td className="py-2.5 text-right text-emerald-700">
                           +
                           {(
-                            currentPreset.benchmarkMetrics.agentEnrichedMrr -
-                            currentPreset.benchmarkMetrics.pharosBaselineMrr
+                            activeBenchmarkMetrics.agentEnrichedMrr -
+                            activeBenchmarkMetrics.pharosBaselineMrr
                           ).toFixed(3)}
                         </td>
                       </tr>
@@ -1672,6 +1759,9 @@ export default function App() {
                 Download README.md
               </button>
             </div>
+
+            {/* Render Blueprint (render.yaml) & GitHub Deployment Specification */}
+            <RenderBlueprintPanel />
 
             {/* Architecture & 5-Stage Loop Documentation */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

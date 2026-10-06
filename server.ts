@@ -27,6 +27,17 @@ async function startServer() {
   const app = express();
   app.use(express.json({ limit: '2mb' }));
 
+  // Render Blueprint Health Check Endpoint
+  app.get('/api/health', (_req, res) => {
+    res.status(200).json({
+      status: 'ok',
+      service: 'pharoskg-bio-agent-workbench',
+      author: 'Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle',
+      oboStandardsReady: true,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   // 1. Autonomous 5-Stage KG Agent Pipeline (Ingest -> Filter -> Clean -> Limit -> Predict)
   app.post('/api/agent/pipeline', async (req, res) => {
     try {
@@ -158,7 +169,116 @@ Strict Ontology Rules (10% Judging Weight):
     }
   });
 
-  // 2. Deep Edge Lineage & Explainability Audit (20% Judging Weight)
+  // 2. Interactive Multi-Hop Subgraph Query & Path Synthesis Agent
+  app.post('/api/agent/subgraph-query', async (req, res) => {
+    try {
+      const {
+        seedSymbol,
+        targetSymbol,
+        hopDepth,
+        allowedTdls,
+        discoveredPaths,
+        naturalLanguageFilter,
+      } = req.body;
+      const ai = getAiClient();
+
+      const prompt = `You are the Subgraph Query & Multi-Hop Reasoning Agent for a Pharos Biomedical Knowledge Graph.
+Analyze the following parameterized subgraph traversal:
+- Seed Entity: ${seedSymbol}
+- Target Entity: ${targetSymbol || 'Any reachable phenotype/pathway'}
+- Max Hop Depth: ${hopDepth}-Hop
+- Allowed Pharos Target Development Levels (TDL): ${(allowedTdls || []).join(', ')}
+- User Filter / Hypothesis: "${naturalLanguageFilter || 'Identify functional multi-hop pathways'}"
+- Discovered Graph Paths: ${JSON.stringify(discoveredPaths || [])}
+
+Return:
+1. sparqlQuery: A standards-compliant SPARQL 1.1 query using OBO Foundry URIs (http://purl.obolibrary.org/obo/SO_0001217, PR_000000001, so#translates_to, RO_0002436, MONDO).
+2. cypherQuery: Equivalent Neo4j / Amazon Neptune openCypher query.
+3. biologicalSynthesis: A concise 2-3 sentence mechanistic interpretation of the discovered multi-hop subgraph paths.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              sparqlQuery: { type: Type.STRING },
+              cypherQuery: { type: Type.STRING },
+              biologicalSynthesis: { type: Type.STRING },
+            },
+            required: ['sparqlQuery', 'cypherQuery', 'biologicalSynthesis'],
+          },
+        },
+      });
+
+      const text = response.text;
+      if (!text) {
+        throw new Error('Empty response from Gemini model.');
+      }
+      res.json(JSON.parse(text));
+    } catch (error: any) {
+      console.error('Error in /api/agent/subgraph-query:', error);
+      res.status(500).json({
+        error: error?.message || 'Failed to synthesize subgraph query.',
+      });
+    }
+  });
+
+  // 3. Configurable GNN Benchmark & Ablation Evaluation Agent
+  app.post('/api/agent/run-benchmark', async (req, res) => {
+    try {
+      const {
+        gnnArchitecture,
+        heldOutSplitPct,
+        enforceTranslationSpine,
+        enableGnnPruning,
+        includeMonarchContext,
+        cohortTitle,
+      } = req.body;
+      const ai = getAiClient();
+
+      const prompt = `You are the GNN Link Prediction Evaluation Agent for the NIH Pharos Knowledge Graph Challenge.
+Evaluate the following experimental GNN benchmark configuration on "${cohortTitle}":
+- GNN Architecture: ${gnnArchitecture}
+- Held-Out Test Edge Split: ${heldOutSplitPct}%
+- Separate SO_0001217 -> so#translates_to -> PR_000000001 Spine: ${enforceTranslationSpine}
+- GNN + GTEx/CRAPome Edge Pruning Enabled: ${enableGnnPruning}
+- Monarch MONDO + GO Multi-Hop Context Included: ${includeMonarchContext}
+
+Provide a concise technical analysis explaining why this specific ablation and architecture configuration achieves its link prediction recall compared to the static Pharos baseline.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              ablationAnalysis: { type: Type.STRING },
+              topologicalBottleneckNote: { type: Type.STRING },
+            },
+            required: ['ablationAnalysis', 'topologicalBottleneckNote'],
+          },
+        },
+      });
+
+      const text = response.text;
+      if (!text) {
+        throw new Error('Empty response from Gemini model.');
+      }
+      res.json(JSON.parse(text));
+    } catch (error: any) {
+      console.error('Error in /api/agent/run-benchmark:', error);
+      res.status(500).json({
+        error: error?.message || 'Failed to run GNN benchmark analysis.',
+      });
+    }
+  });
+
+  // 4. Deep Edge Lineage & Explainability Audit (20% Judging Weight)
   app.post('/api/agent/explain-edge', async (req, res) => {
     try {
       const { sourceNode, targetNode, edge, researchQuestion } = req.body;
@@ -213,7 +333,7 @@ Provide a structured audit addressing:
     }
   });
 
-  // 3. Autonomous Literature & Omics Maintenance Agent (Stage 5: Maintain)
+  // 5. Autonomous Literature & Omics Maintenance Agent (Stage 5: Maintain)
   app.post('/api/agent/maintain-delta', async (req, res) => {
     try {
       const { currentPresetTitle, researchQuestion, existingNodeSymbols } = req.body;
