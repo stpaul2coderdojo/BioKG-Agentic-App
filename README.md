@@ -1,21 +1,23 @@
-# PharosKG Bio-Agent Workbench
+# BioKG — Autonomous Bio-Agent Knowledge Graph Workbench
 
 **Autonomous Knowledge Graph Construction, Ontology Alignment, Subgraph Querying, GNN Confidence Pruning & Link Prediction Studio**  
 *Built for the Global Competition: Bio-Agent Knowledge Graph Construction Challenge ("Bridging the Gap: From Static Data to Dynamic Understanding")*
+
+![BioKG SmartOS Slug-Bug Alien Mascot](https://synergyrobotics-ab.weebly.com/uploads/1/0/5/1/105161743/boov-002_orig.jpg)
 
 ---
 
 ## Authorship & Attribution
 
 - **Principal Author & Architect:** Dr. Bheemaiah Anil Kumar  
-- **Organization:** Synergy Robotics, Seattle, WA  
+- **Organization:** Synergy Robotics, Seattle, WA ([SmartOS Platform](https://synergyrobotics-ab.weebly.com/smartos.html))  
 - **Competition Track:** Open Source Track ($5,000 USD AWS Credits) / Bio-Agent Knowledge Graph Construction Challenge (Oct 6 – Nov 17, 2026)
 
 ---
 
 ## 1. Executive Summary
 
-While groundbreaking projects involving biological data are driven by specialized academic labs, a significant disconnect remains between the Knowledge Graph (KG) community and the broader scientific research community. **PharosKG Bio-Agent Workbench** bridges this gap by providing an autonomous 5-stage AI Agent pipeline and interactive scientific workbench that transforms static experimental tables from [NIH Pharos](https://pharos.nih.gov/about) (`Tclin`, `Tchem`, `Tbio`, `Tdark` targets) into a dynamically maintained, ontology-standardized, and GNN-pruned Knowledge Graph optimized for multi-hop subgraph querying and held-out link prediction.
+While groundbreaking projects involving biological data are driven by specialized academic labs, a significant disconnect remains between the Knowledge Graph (KG) community and the broader scientific research community. **BioKG** bridges this gap by combining Synergy Robotics' **SmartOS (Holodeck API & RavaTTT Co-Pilot)** with an autonomous 5-stage AI Agent pipeline and interactive scientific workbench that transforms static experimental tables from [NIH Pharos](https://pharos.nih.gov/about) (`Tclin`, `Tchem`, `Tbio`, `Tdark` targets) into a dynamically maintained, ontology-standardized, and GNN-pruned Knowledge Graph optimized for multi-hop subgraph querying and held-out link prediction.
 
 ---
 
@@ -59,7 +61,7 @@ This repository includes a production-ready **Render Blueprint (`render.yaml`)**
 ```yaml
 services:
   - type: web
-    name: pharoskg-bio-agent-workbench
+    name: biokg-agent-workbench
     runtime: node
     plan: starter
     region: oregon
@@ -83,9 +85,31 @@ services:
 
 ---
 
-## 5. Server API Endpoints (`server.ts`)
+## 5. Compiling to NVIDIA Brev (`NeMoClaw` / `OpenClaw` / `Nous Hermes`)
 
-- `GET /api/health` — Render Blueprint service health and OBO standard readiness check.
+This repository includes full **NVIDIA Brev GPU Launchable** artifacts (`/.brev/setup.sh`, `/docker-compose.brev.yml`, `/Dockerfile.brev`, and `/biokg-agents.yaml`) so you can compile and deploy BioKG on NVIDIA Brev GPU instances (`L40S`, `A100`, `H100`, `A10G`) using any of the three supported autonomous agent frameworks:
+
+1. **NVIDIA NeMoClaw (`--profile nemoclaw`)**: Enterprise OpenClaw distribution powered by **NVIDIA NIM** (`nvcr.io/nvidia/nim/llama-3.1-nemotron-70b-instruct`) and **OpenShell** security guardrails enforcing strict OBO Foundry URI whitelisting (`SO_0001217`, `PR_000000001`, `so#translates_to`).
+2. **OpenClaw (`--profile openclaw`)**: Open-source multi-agent swarm runtime executing the 5-stage BioKG pipeline (**Ingest, Filter, Clean, Limit, Maintain**) with isolated BioLink tool sandboxes.
+3. **Nous Hermes 3 (`--profile hermes`)**: `NousResearch/Hermes-3-Llama-3.1-70B-FP8` served via `vllm/vllm-openai` with `--enable-auto-tool-choice --tool-call-parser hermes` for deterministic Cypher/SPARQL and OBO triple function calling.
+
+```bash
+# Provision & compile on an NVIDIA Brev instance
+chmod +x .brev/setup.sh
+./.brev/setup.sh
+
+# Or launch a specific GPU agent runtime profile directly via Docker Compose:
+docker compose -f docker-compose.brev.yml --profile nemoclaw up -d
+docker compose -f docker-compose.brev.yml --profile openclaw up -d
+docker compose -f docker-compose.brev.yml --profile hermes up -d
+```
+
+---
+
+## 6. Server API Endpoints (`server.ts`)
+
+- `GET /api/health` — Render Blueprint & NVIDIA Brev service health and OBO standard readiness check.
+- `POST /api/brev/compile-manifest` — Compiles the NVIDIA Brev Launchable manifest and runtime configuration for `nemoclaw`, `openclaw`, or `hermes`.
 - `POST /api/agent/pipeline` — Executes the 5-stage autonomous KG construction, OBO URI promotion, GNN confidence pruning, and held-out link prediction pipeline.
 - `POST /api/agent/subgraph-query` — Executes multi-hop subgraph extraction and Gemini 3.8 Flash path synthesis across selected seed nodes, hop depths, and TDL filters.
 - `POST /api/agent/run-benchmark` — Runs configurable GNN link prediction benchmarks (`RGCN`, `GraphSAGE`, `RotatE`, `OptimusKG`) and returns comparative AUROC, Hits@10, MRR, and ROC coordinates.

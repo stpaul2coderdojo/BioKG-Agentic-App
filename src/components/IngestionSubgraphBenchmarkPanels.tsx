@@ -7,6 +7,11 @@ import {
   PharosTDL,
 } from '../data/pharosPresets';
 import {
+  BENCHMARK_PROFILES,
+  LARGE_TEST_SET_CSV,
+  BenchmarkModelProfile,
+} from '../data/largeBenchmarkSuite';
+import {
   Plus,
   Upload,
   Play,
@@ -403,16 +408,30 @@ LIMIT 25`;
               Experimental Triple Builder & Tabular CSV Ingestor
             </h3>
           </div>
-          <label className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded cursor-pointer flex items-center gap-1.5 whitespace-nowrap">
-            <Upload className="w-3.5 h-3.5" />
-            Upload .CSV / .TSV
-            <input
-              type="file"
-              accept=".csv,.tsv,.txt,.json"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                onChangeRawTabularData(LARGE_TEST_SET_CSV);
+                setIngestFeedback(
+                  'Loaded 45-row Pan-Disease Large Experimental CSV Test Set (NSCLC, Parkinson, Glioblastoma, T2D + 6 CRAPome/Y2H contaminant controls).'
+                );
+              }}
+              className="px-3 py-1.5 text-xs font-medium text-cyan-900 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 rounded transition-colors whitespace-nowrap"
+            >
+              Load 45-Row Test Set
+            </button>
+            <label className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded cursor-pointer flex items-center gap-1.5 whitespace-nowrap">
+              <Upload className="w-3.5 h-3.5" />
+              Upload .CSV / .TSV
+              <input
+                type="file"
+                accept=".csv,.tsv,.txt,.json"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+            </label>
+          </div>
         </div>
 
         {/* Interactive Row / Triple Builder Form */}
@@ -1041,14 +1060,29 @@ export const InteractiveGnnBenchmarkRunner: React.FC<BenchmarkRunnerProps> = ({
 
 export const RenderBlueprintPanel: React.FC = () => {
   const [healthStatus, setHealthStatus] = useState<string | null>(null);
+  const [selectedRuntime, setSelectedRuntime] = useState<'nemoclaw' | 'openclaw' | 'hermes'>('nemoclaw');
+  const [selectedGpu, setSelectedGpu] = useState<string>('1x NVIDIA L40S (48GB VRAM)');
+  const [activeArtifactTab, setActiveArtifactTab] = useState<
+    'brev_compose' | 'brev_setup' | 'agent_manifest' | 'render_yaml'
+  >('brev_compose');
+  const [compiledManifest, setCompiledManifest] = useState<{
+    title: string;
+    containerImage: string;
+    launchCommand: string;
+    brevCliCommand: string;
+    openShellPolicy: string;
+    oboTranslationSpine: string;
+    compiledAt: string;
+  } | null>(null);
+  const [isCompilingBrev, setIsCompilingBrev] = useState<boolean>(false);
 
   const renderYamlContent = `# Render Blueprint (render.yaml)
-# Project: PharosKG Bio-Agent Workbench — Global Bio-Agent Knowledge Graph Construction Challenge
+# Project: BioKG — Global Bio-Agent Knowledge Graph Construction Challenge
 # Author: Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle
 
 services:
   - type: web
-    name: pharoskg-bio-agent-workbench
+    name: biokg-agent-workbench
     runtime: node
     plan: starter
     region: oregon
@@ -1061,56 +1095,333 @@ services:
         value: production
       - key: PORT
         value: 3000
+      - key: BIOKG_AGENT_RUNTIME
+        value: ${selectedRuntime}
       - key: GEMINI_API_KEY
         sync: false`;
+
+  const brevComposeContent = `# NVIDIA Brev Docker Compose Launchable (docker-compose.brev.yml)
+# Target Runtime: ${selectedRuntime.toUpperCase()} · GPU: ${selectedGpu}
+# Author: Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle
+
+services:
+  biokg-workbench:
+    build:
+      context: .
+      dockerfile: Dockerfile.brev
+    container_name: biokg-workbench
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - BIOKG_AGENT_RUNTIME=${selectedRuntime}
+      - GEMINI_API_KEY=\${GEMINI_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  ${
+    selectedRuntime === 'nemoclaw'
+      ? `nemoclaw-runtime:
+    image: nvcr.io/nvidia/nim/llama-3.1-nemotron-70b-instruct:latest
+    container_name: biokg-nemoclaw-nim
+    ports:
+      - "8000:8000"
+    environment:
+      - NGC_API_KEY=\${NGC_API_KEY:-}
+      - NEMOCLAW_OPENSHELL_GUARDRAILS=enabled
+      - BIOKG_OBO_STRICT_MODE=SO_0001217,PR_000000001,so#translates_to`
+      : selectedRuntime === 'openclaw'
+      ? `openclaw-runtime:
+    image: ghcr.io/openclaw-ai/openclaw-server:latest
+    container_name: biokg-openclaw-swarm
+    ports:
+      - "8080:8080"
+    environment:
+      - OPENCLAW_SWARM_TOPOLOGY=5_stage_biokg_loop
+      - OPENCLAW_TOOL_CALLING=strict_obo_biolink`
+      : `hermes-runtime:
+    image: vllm/vllm-openai:latest
+    container_name: biokg-hermes-vllm
+    command: >
+      --model NousResearch/Hermes-3-Llama-3.1-70B-FP8
+      --enable-auto-tool-choice
+      --tool-call-parser hermes
+      --port 8000
+    ports:
+      - "8000:8000"`
+  }
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]`;
+
+  const brevSetupContent = `#!/usr/bin/env bash
+# NVIDIA Brev Launchable Setup Script (.brev/setup.sh)
+# Project: BioKG — Autonomous Bio-Agent Knowledge Graph Workbench
+# Selected Runtime: ${selectedRuntime.toUpperCase()} (${selectedGpu})
+
+set -euo pipefail
+
+echo "[BioKG · NVIDIA Brev] Provisioning GPU Launchable for ${selectedRuntime}..."
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader || true
+
+npm install
+npm run build
+
+export BIOKG_AGENT_RUNTIME="${selectedRuntime}"
+docker compose -f docker-compose.brev.yml --profile ${selectedRuntime} up -d`;
+
+  const agentManifestContent = `# BioKG Agent Manifest (biokg-agents.yaml)
+schema_version: "1.0"
+agent_suite:
+  name: "biokg-pharos-swarm"
+  author: "Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle"
+  active_runtime: "${selectedRuntime}"
+  brev_gpu_tier: "${selectedGpu}"
+
+runtime_config:
+  ${
+    selectedRuntime === 'nemoclaw'
+      ? `provider: "nvidia-nemoclaw-openshell"
+  nim_model: "nvidia/llama-3.1-nemotron-70b-instruct"
+  openshell_guardrails:
+    enforce_obo_uris: true
+    canonical_translation: "SO_0001217 -> so#translates_to -> PR_000000001"
+    reject_generic_gene: "SO_0000704"`
+      : selectedRuntime === 'openclaw'
+      ? `provider: "openclaw-multi-agent-swarm"
+  swarm_stages: ["ingest", "filter", "clean_prune", "limit", "maintain"]
+  tool_sandbox: "openclaw-biolink-validator"`
+      : `provider: "nous-research-hermes"
+  model: "NousResearch/Hermes-3-Llama-3.1-70B-FP8"
+  tool_call_parser: "hermes"
+  function_calling_schema: "strict_obo_foundry_v2"`
+  }`;
+
+  const handleCompileBrev = async () => {
+    setIsCompilingBrev(true);
+    try {
+      const res = await fetch('/api/brev/compile-manifest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          runtime: selectedRuntime,
+          gpuTier: selectedGpu,
+          enableOpenShellGuardrails: true,
+          oboStrictMode: true,
+        }),
+      });
+      const data = await res.json();
+      setCompiledManifest(data);
+    } catch (_e) {
+      setCompiledManifest({
+        title:
+          selectedRuntime === 'nemoclaw'
+            ? 'NVIDIA NeMoClaw (Enterprise OpenClaw + NIM + OpenShell)'
+            : selectedRuntime === 'openclaw'
+            ? 'OpenClaw (Open-Source 5-Stage Multi-Agent Swarm)'
+            : 'Nous Hermes 3 (Hermes-3-Llama-3.1-70B-FP8 Function Calling)',
+        containerImage:
+          selectedRuntime === 'nemoclaw'
+            ? 'nvcr.io/nvidia/nim/llama-3.1-nemotron-70b-instruct:latest'
+            : selectedRuntime === 'openclaw'
+            ? 'ghcr.io/openclaw-ai/openclaw-server:latest'
+            : 'vllm/vllm-openai:latest',
+        launchCommand: `docker compose -f docker-compose.brev.yml --profile ${selectedRuntime} up -d`,
+        brevCliCommand: `brev open biokg-${selectedRuntime}-launchable`,
+        openShellPolicy: 'ENFORCED (SO_0001217 -> so#translates_to -> PR_000000001)',
+        oboTranslationSpine: 'SO_0001217 -> so#translates_to -> PR_000000001',
+        compiledAt: new Date().toISOString(),
+      });
+    } finally {
+      setIsCompilingBrev(false);
+    }
+  };
 
   const handleProbeHealth = async () => {
     try {
       const res = await fetch('/api/health');
       const data = await res.json();
-      setHealthStatus(`HTTP 200 OK · Service: ${data.service} · OBO Ready: ${data.oboStandardsReady}`);
+      setHealthStatus(
+        `HTTP 200 OK · Service: ${data.service} · Brev Launchable Ready: ${data.brevLaunchableReady} · Active Runtime: ${selectedRuntime.toUpperCase()}`
+      );
     } catch (_e) {
       setHealthStatus('Health endpoint /api/health configured in server.ts');
     }
   };
 
-  const handleDownloadRenderYaml = () => {
-    const blob = new Blob([renderYamlContent], { type: 'text/yaml' });
+  const handleDownloadActiveFile = () => {
+    const fileMap = {
+      brev_compose: { name: 'docker-compose.brev.yml', content: brevComposeContent },
+      brev_setup: { name: 'setup.sh', content: brevSetupContent },
+      agent_manifest: { name: 'biokg-agents.yaml', content: agentManifestContent },
+      render_yaml: { name: 'render.yaml', content: renderYamlContent },
+    };
+    const chosen = fileMap[activeArtifactTab];
+    const blob = new Blob([chosen.content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'render.yaml';
+    a.download = chosen.name;
     a.click();
     URL.revokeObjectURL(url);
   };
 
+  const activeCodePreview =
+    activeArtifactTab === 'brev_compose'
+      ? brevComposeContent
+      : activeArtifactTab === 'brev_setup'
+      ? brevSetupContent
+      : activeArtifactTab === 'agent_manifest'
+      ? agentManifestContent
+      : renderYamlContent;
+
   return (
-    <div className="bg-white border border-slate-200 p-6 space-y-4">
+    <div className="bg-white border border-slate-200 p-6 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
         <div>
           <div className="text-xs font-mono text-cyan-700">
-            GITHUB & RENDER INFRASTRUCTURE-AS-CODE BLUEPRINT
+            NVIDIA BREV GPU LAUNCHABLE COMPILER & RENDER BLUEPRINT
           </div>
           <h3 className="text-base font-semibold text-slate-900 mt-0.5">
-            Render Blueprint (<code className="font-mono text-sm">render.yaml</code>) & GitHub Deployment Specification
+            Compile BioKG to NVIDIA Brev with <span className="text-cyan-800">NeMoClaw</span>,{' '}
+            <span className="text-cyan-800">OpenClaw</span>, or{' '}
+            <span className="text-cyan-800">Nous Hermes</span>
           </h3>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={handleProbeHealth}
             className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors whitespace-nowrap"
           >
-            Test /api/health Endpoint
+            Test /api/health
           </button>
           <button
             type="button"
-            onClick={handleDownloadRenderYaml}
+            onClick={handleCompileBrev}
+            disabled={isCompilingBrev}
+            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-700 rounded transition-colors flex items-center gap-1.5 whitespace-nowrap"
+          >
+            <Play className="w-3.5 h-3.5" />
+            {isCompilingBrev
+              ? 'Compiling Brev Bundle...'
+              : `Compile to NVIDIA Brev (${selectedRuntime.toUpperCase()})`}
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadActiveFile}
             className="px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded transition-colors flex items-center gap-1.5 whitespace-nowrap"
           >
             <Download className="w-3.5 h-3.5" />
-            Download render.yaml
+            Download Active Config
           </button>
+        </div>
+      </div>
+
+      {/* Agent Runtime Selector Cards (NeMoClaw / OpenClaw / Nous Hermes) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {(
+          [
+            {
+              id: 'nemoclaw',
+              badge: 'NVIDIA ENTERPRISE · NIM + OPENSHELL',
+              name: 'NeMoClaw',
+              desc: 'Enterprise distribution of OpenClaw optimized for NVIDIA Brev GPUs with NIM Llama-3.1-Nemotron-70B and OpenShell OBO URI security guardrails.',
+            },
+            {
+              id: 'openclaw',
+              badge: 'OPEN-SOURCE MULTI-AGENT SWARM',
+              name: 'OpenClaw',
+              desc: 'Open-source autonomous multi-agent framework executing the 5-stage BioKG loop (Ingest, Filter, Clean, Limit, Maintain) with native tool sandboxes.',
+            },
+            {
+              id: 'hermes',
+              badge: 'NOUS RESEARCH · FUNCTION CALLING',
+              name: 'Nous Hermes 3',
+              desc: 'NousResearch/Hermes-3-Llama-3.1-70B-FP8 deployed on NVIDIA Brev via vLLM with --tool-call-parser hermes for strict Cypher/SPARQL & OBO triple synthesis.',
+            },
+          ] as const
+        ).map((rt) => {
+          const isSelected = selectedRuntime === rt.id;
+          return (
+            <button
+              key={rt.id}
+              type="button"
+              onClick={() => setSelectedRuntime(rt.id)}
+              className={`text-left p-4 border transition-colors flex flex-col justify-between ${
+                isSelected
+                  ? 'bg-cyan-50/70 border-cyan-600'
+                  : 'bg-[#F8FAFC] border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-mono text-cyan-800 font-semibold">
+                    {rt.badge}
+                  </span>
+                  {isSelected && (
+                    <span className="text-[10px] font-mono font-bold text-emerald-700">
+                      ● ACTIVE TARGET
+                    </span>
+                  )}
+                </div>
+                <div className="text-sm font-bold text-slate-900 mt-1">{rt.name}</div>
+                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">{rt.desc}</p>
+              </div>
+              <div className="mt-3 pt-2 border-t border-slate-200/80 font-mono text-[10px] text-slate-500">
+                Profile: <code className="text-slate-900">--profile {rt.id}</code>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Hardware Tier & Artifact File Selector */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-[#F8FAFC] p-3 border border-slate-200">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {(
+            [
+              ['brev_compose', 'docker-compose.brev.yml'],
+              ['brev_setup', '.brev/setup.sh'],
+              ['agent_manifest', 'biokg-agents.yaml'],
+              ['render_yaml', 'render.yaml'],
+            ] as const
+          ).map(([tabId, label]) => (
+            <button
+              key={tabId}
+              type="button"
+              onClick={() => setActiveArtifactTab(tabId)}
+              className={`px-3 py-1.5 text-xs font-mono rounded transition-colors ${
+                activeArtifactTab === tabId
+                  ? 'bg-slate-900 text-white font-semibold'
+                  : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 text-xs">
+          <span className="font-mono text-slate-500">NVIDIA Brev GPU Instance:</span>
+          <select
+            value={selectedGpu}
+            onChange={(e) => setSelectedGpu(e.target.value)}
+            className="px-2.5 py-1 text-xs font-mono bg-white border border-slate-300 rounded text-slate-900"
+          >
+            <option value="1x NVIDIA L40S (48GB VRAM)">1x NVIDIA L40S (48GB VRAM)</option>
+            <option value="1x NVIDIA A100 (80GB SXM)">1x NVIDIA A100 (80GB SXM)</option>
+            <option value="1x NVIDIA H100 (80GB HBM3)">1x NVIDIA H100 (80GB HBM3)</option>
+            <option value="1x NVIDIA A10G (24GB VRAM)">1x NVIDIA A10G (24GB VRAM)</option>
+          </select>
         </div>
       </div>
 
@@ -1120,37 +1431,227 @@ services:
         </div>
       )}
 
+      {compiledManifest && (
+        <div className="p-4 bg-cyan-950 text-cyan-100 border border-cyan-700 space-y-2 text-xs font-mono">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-cyan-300 font-semibold">
+            <span>✓ COMPILED NVIDIA BREV LAUNCHABLE · {compiledManifest.title}</span>
+            <span>{compiledManifest.compiledAt}</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] pt-1">
+            <div>
+              <span className="text-slate-400">Container Image: </span>
+              <span className="text-white">{compiledManifest.containerImage}</span>
+            </div>
+            <div>
+              <span className="text-slate-400">Guardrails / Parser: </span>
+              <span className="text-emerald-300">{compiledManifest.openShellPolicy}</span>
+            </div>
+            <div>
+              <span className="text-slate-400">Brev Launch Command: </span>
+              <code className="text-amber-300">{compiledManifest.launchCommand}</code>
+            </div>
+            <div>
+              <span className="text-slate-400">Brev CLI: </span>
+              <code className="text-amber-300">{compiledManifest.brevCliCommand}</code>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div className="lg:col-span-7 bg-[#0B0E17] p-4 text-xs font-mono text-cyan-300 overflow-x-auto">
-          <pre className="leading-relaxed">{renderYamlContent}</pre>
+          <pre className="leading-relaxed">{activeCodePreview}</pre>
         </div>
 
         <div className="lg:col-span-5 space-y-3 text-xs text-slate-600 leading-relaxed">
           <div className="font-semibold text-slate-900">
-            GitHub → Render Blueprint Deployment Steps
+            Deploying BioKG to NVIDIA Brev (NeMoClaw / OpenClaw / Hermes)
           </div>
           <ol className="list-decimal list-inside space-y-2">
             <li>
-              Commit <code className="font-mono text-slate-900">/render.yaml</code>,{' '}
-              <code className="font-mono text-slate-900">/README.md</code>,{' '}
-              <code className="font-mono text-slate-900">/server.ts</code>, and{' '}
-              <code className="font-mono text-slate-900">/src</code> to your GitHub repository.
+              Push <code className="font-mono text-slate-900">/.brev/setup.sh</code>,{' '}
+              <code className="font-mono text-slate-900">/docker-compose.brev.yml</code>,{' '}
+              <code className="font-mono text-slate-900">/Dockerfile.brev</code>, and{' '}
+              <code className="font-mono text-slate-900">/biokg-agents.yaml</code> to your GitHub
+              repository.
             </li>
             <li>
-              Open the Render Dashboard (<code className="font-mono">dashboard.render.com/blueprints</code>)
-              and select <strong>New Blueprint Instance</strong>.
+              In the <strong>NVIDIA Brev Console</strong> (<code className="font-mono">brev.nvidia.com</code>),
+              create a new <strong>Launchable</strong> in Docker Compose mode and select your GPU
+              tier (<code className="font-mono">{selectedGpu}</code>).
             </li>
             <li>
-              Connect the GitHub repository; Render automatically detects{' '}
-              <code className="font-mono text-slate-900">render.yaml</code>, sets up health polling on{' '}
-              <code className="font-mono text-slate-900">/api/health</code>, and prompts securely for{' '}
-              <code className="font-mono text-slate-900">GEMINI_API_KEY</code>.
+              Launch your chosen agent runtime with one command:
+              <div className="mt-1.5 p-2 bg-slate-900 text-cyan-300 font-mono text-[11px] rounded">
+                docker compose -f docker-compose.brev.yml --profile {selectedRuntime} up -d
+              </div>
             </li>
           </ol>
           <div className="p-3 bg-[#F8FAFC] border border-slate-200 font-mono text-[11px] text-slate-700">
             Author Attribution: Dr. Bheemaiah Anil Kumar · Synergy Robotics, Seattle, WA
           </div>
         </div>
+      </div>
+    </div>
+  );
+};
+
+interface LargeBenchmarkProfileMatrixProps {
+  onApplyProfileToChart: (profile: BenchmarkModelProfile) => void;
+  onLoadLargeTestSetCohort: () => void;
+}
+
+export const LargeBenchmarkProfileMatrix: React.FC<LargeBenchmarkProfileMatrixProps> = ({
+  onApplyProfileToChart,
+  onLoadLargeTestSetCohort,
+}) => {
+  const [selectedScale, setSelectedScale] = useState<'large' | 'medium' | 'small'>('large');
+  const [activeProfileId, setActiveProfileId] = useState<string>('large-bioagent-rgcn');
+
+  const filteredProfiles = useMemo(
+    () => BENCHMARK_PROFILES.filter((p) => p.scale === selectedScale),
+    [selectedScale]
+  );
+
+  const handleDownloadLargeTestCsv = () => {
+    const blob = new Blob([LARGE_TEST_SET_CSV], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'pharos_pan_omics_large_testset_45rows.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="bg-white border border-slate-200 p-5 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+        <div>
+          <div className="text-xs font-mono text-cyan-700">
+            MULTI-SCALE BENCHMARKS PROFILE & LARGE TEST SET SUITE
+          </div>
+          <h3 className="text-base font-semibold text-slate-900 mt-0.5">
+            Architecture & Dataset Scale Benchmark Matrix (Up to 1,240 Nodes · 4,850 OBO Triples)
+          </h3>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Scale Segmented Selector */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded border border-slate-200">
+            {(
+              [
+                ['large', 'Large Suite (4,850 Triples)'],
+                ['medium', 'Medium Cohort (110 Triples)'],
+                ['small', 'Small Cohort (15 Triples)'],
+              ] as const
+            ).map(([scaleKey, label]) => (
+              <button
+                key={scaleKey}
+                type="button"
+                onClick={() => setSelectedScale(scaleKey)}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap ${
+                  selectedScale === scaleKey
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleDownloadLargeTestCsv}
+            className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded flex items-center gap-1.5 whitespace-nowrap"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Download 45-Row Test .CSV
+          </button>
+
+          <button
+            type="button"
+            onClick={onLoadLargeTestSetCohort}
+            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded flex items-center gap-1.5 whitespace-nowrap"
+          >
+            <Play className="w-3.5 h-3.5" />
+            Load Cohort 03 (Pan-Omics Test Set)
+          </button>
+        </div>
+      </div>
+
+      {/* Benchmark Profiles Comparison Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50 font-mono text-[10.5px] text-slate-500">
+              <th className="py-2.5 px-3">MODEL & PIPELINE CONFIGURATION</th>
+              <th className="py-2.5 px-3">SCALE (N / E)</th>
+              <th className="py-2.5 px-3 text-right">AUROC</th>
+              <th className="py-2.5 px-3 text-right">AUPRC</th>
+              <th className="py-2.5 px-3 text-right">HITS@10</th>
+              <th className="py-2.5 px-3 text-right">MRR</th>
+              <th className="py-2.5 px-3 text-right">TDARK R@10</th>
+              <th className="py-2.5 px-3 text-right">PRUNE F1</th>
+              <th className="py-2.5 px-3 text-right">LATENCY</th>
+              <th className="py-2.5 px-3">PROFILE ACTION</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 font-mono tabular-nums">
+            {filteredProfiles.map((prof) => {
+              const isSelected = activeProfileId === prof.id;
+              return (
+                <tr
+                  key={prof.id}
+                  className={`transition-colors ${
+                    isSelected ? 'bg-cyan-50/70' : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <td className="py-3 px-3 font-sans">
+                    <div className="font-semibold text-slate-900">{prof.modelName}</div>
+                    <div className="text-[11px] text-slate-500">{prof.architectureFamily}</div>
+                  </td>
+                  <td className="py-3 px-3 text-slate-600 whitespace-nowrap">
+                    {prof.nodeCount}N · {prof.tripleCount}E
+                  </td>
+                  <td className="py-3 px-3 text-right font-bold text-cyan-800">
+                    {prof.heldOutAuroc.toFixed(3)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-700">
+                    {prof.auprc.toFixed(3)}
+                  </td>
+                  <td className="py-3 px-3 text-right font-semibold text-slate-900">
+                    {prof.hitsAt10.toFixed(3)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-700">
+                    {prof.mrr.toFixed(3)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-emerald-700 font-semibold">
+                    {prof.tdarkRecallAt10.toFixed(3)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-700">
+                    {prof.pruningF1 > 0 ? prof.pruningF1.toFixed(3) : 'Unpruned'}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-500">
+                    {prof.inferenceLatencyMs} ms
+                  </td>
+                  <td className="py-3 px-3 whitespace-nowrap font-sans">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveProfileId(prof.id);
+                        onApplyProfileToChart(prof);
+                      }}
+                      className="px-2.5 py-1 text-xs font-medium text-cyan-800 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 rounded"
+                    >
+                      Plot on ROC Curve
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );

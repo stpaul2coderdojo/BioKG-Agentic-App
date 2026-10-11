@@ -1,8 +1,8 @@
 # Technical Architecture & Ontological Specification
 
 **Author:** Dr. Bheemaiah Anil Kumar  
-**Affiliation:** Synergy Robotics, Seattle, WA  
-**Project:** PharosKG Bio-Agent Workbench — Global Bio-Agent Knowledge Graph Construction Challenge (2026)
+**Affiliation:** Synergy Robotics, Seattle, WA (https://synergyrobotics-ab.weebly.com/smartos.html)  
+**Project:** BioKG — Global Bio-Agent Knowledge Graph Construction Challenge (2026)
 
 ---
 

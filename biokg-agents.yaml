@@ -1,0 +1,52 @@
+# ==============================================================================
+# BioKG Agent Manifest for NeMoClaw / OpenClaw / Nous Hermes on NVIDIA Brev
+# Project: BioKG — Autonomous Bio-Agent Knowledge Graph Workbench
+# Author: Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle
+# ==============================================================================
+
+schema_version: "1.0"
+agent_suite:
+  name: "biokg-pharos-swarm"
+  author: "Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle"
+  smartos_portal: "https://synergyrobotics-ab.weebly.com/smartos.html"
+  default_runtime: "nemoclaw"
+
+runtimes:
+  nemoclaw:
+    provider: "nvidia-nim-openshell"
+    model: "nvidia/llama-3.1-nemotron-70b-instruct"
+    openshell_policy:
+      enforce_obo_uris: true
+      allowed_ontologies:
+        - "http://purl.obolibrary.org/obo/SO_0001217"
+        - "http://purl.obolibrary.org/obo/PR_000000001"
+        - "http://purl.obolibrary.org/obo/so#translates_to"
+        - "http://purl.obolibrary.org/obo/RO_0002436"
+        - "http://purl.obolibrary.org/obo/RO_0003302"
+        - "http://purl.obolibrary.org/obo/RO_0002606"
+        - "http://purl.obolibrary.org/obo/MONDO_0000001"
+      block_generic_gene_class: "http://purl.obolibrary.org/obo/SO_0000704"
+
+  openclaw:
+    provider: "openclaw-multi-agent"
+    swarm_topology: "5-stage-sequential-loop"
+    stages:
+      - id: "stage_01_ingest"
+        role: "Tabular Pharos CSV to OBO Triple Extractor"
+      - id: "stage_02_filter"
+        role: "Natural Language Hypothesis to Cypher/SPARQL Compiler"
+      - id: "stage_03_clean"
+        role: "RGCN Topological & GTEx/CRAPome Confidence Pruner"
+      - id: "stage_04_limit"
+        role: "Subgraph Cardinality & Degree Governor"
+      - id: "stage_05_maintain"
+        role: "Incremental PubMed & Pharos v3.19 Delta Updater"
+
+  hermes:
+    provider: "nous-research-hermes"
+    model: "NousResearch/Hermes-3-Llama-3.1-70B-FP8"
+    tool_call_parser: "hermes"
+    system_prompt: >
+      You are a function-calling Nous Hermes BioKG Agent operating on an NVIDIA Brev GPU instance.
+      Always promote protein-coding genes to http://purl.obolibrary.org/obo/SO_0001217 and link them
+      to http://purl.obolibrary.org/obo/PR_000000001 via http://purl.obolibrary.org/obo/so#translates_to.

@@ -1,0 +1,94 @@
+# ==============================================================================
+# NVIDIA Brev Docker Compose Launchable (docker-compose.brev.yml)
+# Project: BioKG — Autonomous Bio-Agent Knowledge Graph Workbench
+# Author: Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle
+# Usage on NVIDIA Brev:
+#   - NeMoClaw (NVIDIA NIM + OpenShell):
+#       docker compose -f docker-compose.brev.yml --profile nemoclaw up -d
+#   - OpenClaw (Open-Source Multi-Agent Swarm):
+#       docker compose -f docker-compose.brev.yml --profile openclaw up -d
+#   - Nous Hermes (Hermes-3-Llama-3.1-70B Function-Calling Agent):
+#       docker compose -f docker-compose.brev.yml --profile hermes up -d
+# ==============================================================================
+
+services:
+  biokg-workbench:
+    build:
+      context: .
+      dockerfile: Dockerfile.brev
+    container_name: biokg-workbench
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - BIOKG_AGENT_RUNTIME=${BIOKG_AGENT_RUNTIME:-nemoclaw}
+      - AGENT_OPENAI_BASE_URL=${AGENT_OPENAI_BASE_URL:-http://agent-gateway:8080/v1}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # Profile 1: NVIDIA NeMoClaw (Enterprise OpenClaw + NVIDIA NIM + OpenShell Guardrails)
+  nemoclaw-runtime:
+    image: nvcr.io/nvidia/nim/llama-3.1-nemotron-70b-instruct:latest
+    container_name: biokg-nemoclaw-nim
+    profiles: ["nemoclaw"]
+    ports:
+      - "8000:8000"
+    environment:
+      - NGC_API_KEY=${NGC_API_KEY:-}
+      - NEMOCLAW_OPENSHELL_GUARDRAILS=enabled
+      - BIOKG_OBO_STRICT_MODE=SO_0001217,PR_000000001,so#translates_to
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Profile 2: OpenClaw (Open-Source Multi-Agent KG Construction Swarm)
+  openclaw-runtime:
+    image: ghcr.io/openclaw-ai/openclaw-server:latest
+    container_name: biokg-openclaw-swarm
+    profiles: ["openclaw"]
+    ports:
+      - "8080:8080"
+    environment:
+      - OPENCLAW_SWARM_TOPOLOGY=5_stage_biokg_loop
+      - OPENCLAW_TOOL_CALLING=strict_obo_biolink
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Profile 3: Nous Hermes (NousResearch/Hermes-3-Llama-3.1-70B-FP8 via vLLM on Brev GPU)
+  hermes-runtime:
+    image: vllm/vllm-openai:latest
+    container_name: biokg-hermes-vllm
+    profiles: ["hermes"]
+    command: >
+      --model NousResearch/Hermes-3-Llama-3.1-70B-FP8
+      --enable-auto-tool-choice
+      --tool-call-parser hermes
+      --port 8000
+      --max-model-len 32768
+    ports:
+      - "8000:8000"
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

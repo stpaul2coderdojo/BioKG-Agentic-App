@@ -1,6 +1,6 @@
 {
-  "name": "PharosKG Bio-Agent Workbench",
-  "description": "Autonomous AI Agent Knowledge Graph Construction, Ontology Alignment, Pruning, and GNN Link Prediction Workbench for the Global Bio-Agent KG Challenge.",
-  "requestFramePermissions": [],
+  "name": "BioKG",
+  "description": "BioKG — Autonomous AI Agent Knowledge Graph Construction, Ontology Alignment, Pruning, and GNN Link Prediction Workbench by Dr. Bheemaiah Anil Kumar, Synergy Robotics Seattle.",
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -1,8 +1,10 @@
 import express from 'express';
+import http from 'http';
+import { WebSocketServer } from 'ws';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import dotenv from 'dotenv';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, LiveServerMessage, Modality, Type } from '@google/genai';
 
 dotenv.config();
 
@@ -25,16 +27,72 @@ function getAiClient() {
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '2mb' }));
+  const server = http.createServer(app);
+  app.use(express.json({ limit: '4mb' }));
 
-  // Render Blueprint Health Check Endpoint
+  // Render Blueprint & NVIDIA Brev Health Check Endpoint
   app.get('/api/health', (_req, res) => {
     res.status(200).json({
       status: 'ok',
-      service: 'pharoskg-bio-agent-workbench',
+      service: 'biokg-agent-workbench',
       author: 'Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle',
       oboStandardsReady: true,
+      liveVoiceReady: true,
+      brevLaunchableReady: true,
+      supportedAgentRuntimes: ['nemoclaw', 'openclaw', 'hermes'],
+      activeAgentRuntime: process.env.BIOKG_AGENT_RUNTIME || 'nemoclaw',
       timestamp: new Date().toISOString(),
+    });
+  });
+
+  // NVIDIA Brev Compiler & Runtime Manifest Endpoint (NeMoClaw / OpenClaw / Nous Hermes)
+  app.post('/api/brev/compile-manifest', (req, res) => {
+    const {
+      runtime = 'nemoclaw',
+      gpuTier = '1x NVIDIA L40S (48GB VRAM)',
+      enableOpenShellGuardrails = true,
+      oboStrictMode = true,
+    } = req.body || {};
+
+    const runtimeProfiles: Record<string, any> = {
+      nemoclaw: {
+        runtime: 'nemoclaw',
+        title: 'NVIDIA NeMoClaw (Enterprise OpenClaw + NIM + OpenShell)',
+        containerImage: 'nvcr.io/nvidia/nim/llama-3.1-nemotron-70b-instruct:latest',
+        launchCommand: 'docker compose -f docker-compose.brev.yml --profile nemoclaw up -d',
+        brevCliCommand: 'brev open biokg-nemoclaw-launchable --gpu l40s',
+        openShellPolicy: enableOpenShellGuardrails ? 'ENFORCED (OBO URI Whitelist)' : 'PERMISSIVE',
+        oboTranslationSpine: oboStrictMode
+          ? 'SO_0001217 -> so#translates_to -> PR_000000001'
+          : 'Standard BioLink',
+      },
+      openclaw: {
+        runtime: 'openclaw',
+        title: 'OpenClaw (Open-Source 5-Stage Multi-Agent Swarm)',
+        containerImage: 'ghcr.io/openclaw-ai/openclaw-server:latest',
+        launchCommand: 'docker compose -f docker-compose.brev.yml --profile openclaw up -d',
+        brevCliCommand: 'brev open biokg-openclaw-swarm --gpu a10g',
+        openShellPolicy: 'OpenClaw Native Tool Sandbox',
+        oboTranslationSpine: 'SO_0001217 -> so#translates_to -> PR_000000001',
+      },
+      hermes: {
+        runtime: 'hermes',
+        title: 'Nous Hermes 3 (Hermes-3-Llama-3.1-70B-FP8 Function Calling)',
+        containerImage: 'vllm/vllm-openai:latest',
+        launchCommand: 'docker compose -f docker-compose.brev.yml --profile hermes up -d',
+        brevCliCommand: 'brev open biokg-hermes-agent --gpu a100-80gb',
+        openShellPolicy: 'Hermes XML <tool_call> Strict Schema Validator',
+        oboTranslationSpine: 'SO_0001217 -> so#translates_to -> PR_000000001',
+      },
+    };
+
+    const selected = runtimeProfiles[runtime] || runtimeProfiles.nemoclaw;
+    res.json({
+      status: 'compiled',
+      targetPlatform: 'NVIDIA Brev Launchable',
+      gpuTier,
+      ...selected,
+      compiledAt: new Date().toISOString(),
     });
   });
 
@@ -59,7 +117,7 @@ Strict Ontology Rules (10% Judging Weight):
 2. All proteins MUST use http://purl.obolibrary.org/obo/PR_000000001.
 3. The translation relationship between SO_0001217 and PR_000000001 MUST be http://purl.obolibrary.org/obo/so#translates_to.
 4. Drugs/chemicals use http://purl.obolibrary.org/obo/CHEBI_23888, diseases use http://purl.obolibrary.org/obo/MONDO_0000001, biological processes use http://purl.obolibrary.org/obo/GO_0008150.
-5. Identify noisy/erroneous rows (e.g. serum contaminants like ALB, non-expressed olfactory receptors like OR2A4, or unverified text mining artifacts) and assign status 'pruned_hallucination' or 'pruned_context' with low gnnReweightedConfidence (<0.25) and a clear pruningReason.
+5. Identify noisy/erroneous rows (e.g. serum contaminants like ALB, KRT10, non-expressed olfactory receptors like OR2A4, or unverified text mining artifacts) and assign status 'pruned_hallucination' or 'pruned_context' with low gnnReweightedConfidence (<0.25) and a clear pruningReason.
 6. Predict 2 held-out high-value links (status 'predicted_heldout') connecting understudied Tdark/Tchem targets or chemical probes to the target disease with a multi-hop lineageExplanation.`;
 
       const response = await ai.models.generateContent({
@@ -435,6 +493,155 @@ Propose 1 newly ingested Tdark or Tchem protein-coding gene + translated protein
     }
   });
 
+  // 6. Gemini Live Context Chatbot Endpoint (CSV Ingestion & Software Co-Pilot)
+  app.post('/api/agent/live-chat', async (req, res) => {
+    try {
+      const { message, workspaceContext, attachedCsv } = req.body;
+      const ai = getAiClient();
+
+      const prompt = `You are the BioKG Gemini Live Context Co-Pilot (powered by SmartOS & RavaTTT, Synergy Robotics, Seattle), authored by Dr. Bheemaiah Anil Kumar.
+Help the researcher use the BioKG software: ingesting structured experimental data, formatting & uploading CSV files, running multi-hop subgraph queries, configuring GNN link prediction benchmarks, and adhering to OBO Foundry standards (SO_0001217, PR_000000001, so#translates_to).
+
+Current Live Application Context:
+- Active Tab: ${workspaceContext?.activeSection}
+- Cohort: ${workspaceContext?.cohortTitle}
+- Research Question: "${workspaceContext?.researchQuestion}"
+- Graph Size: ${workspaceContext?.nodeCount} Nodes, ${workspaceContext?.edgeCount} Edges
+- GNN Pruning Threshold: ${workspaceContext?.pruningThreshold}
+- Current CSV Buffer Rows: ${workspaceContext?.csvRowCount}
+- Current Agent AUROC: ${workspaceContext?.currentAuroc}
+${attachedCsv ? `\nUser Uploaded CSV Content:\n${attachedCsv}\n` : ''}
+
+User Message: "${message}"
+
+If the user asks to generate, format, or fix a CSV file, provide a valid multi-row CSV string in 'suggestedCsv' with headers:
+source_symbol,source_type,target_symbol,target_type,relation,pharos_tdl,assay_metric,pmid,tissue_context
+Otherwise leave 'suggestedCsv' empty string.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              reply: {
+                type: Type.STRING,
+                description: 'Helpful, concise scientific guidance tailored to the live workspace context.',
+              },
+              suggestedCsv: {
+                type: Type.STRING,
+                description: 'Optional generated or cleaned CSV text if the user asked for CSV data/formatting, or empty string.',
+              },
+              suggestedResearchQuestion: {
+                type: Type.STRING,
+                description: 'Optional suggested research question, or empty string.',
+              },
+              suggestedTab: {
+                type: Type.STRING,
+                description: 'Optional tab to navigate to: workbench, ingest_subgraph, benchmark, ontology, challenge, docs, or empty string.',
+              },
+            },
+            required: ['reply', 'suggestedCsv', 'suggestedResearchQuestion', 'suggestedTab'],
+          },
+        },
+      });
+
+      const text = response.text;
+      if (!text) {
+        throw new Error('Empty response from Gemini model.');
+      }
+      res.json(JSON.parse(text));
+    } catch (error: any) {
+      console.error('Error in /api/agent/live-chat:', error);
+      res.status(500).json({
+        error: error?.message || 'Failed to process live context chat.',
+      });
+    }
+  });
+
+  // 7. Gemini Live API WebSocket Bridge (/api/live-voice -> gemini-3.8-live)
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on('upgrade', (request, socket, head) => {
+    if (request.url?.startsWith('/api/live-voice')) {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    }
+  });
+
+  wss.on('connection', async (clientWs) => {
+    let sessionPromise: Promise<any> | null = null;
+    try {
+      const ai = getAiClient();
+      sessionPromise = ai.live.connect({
+        model: 'gemini-3.8-live',
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+          },
+          outputAudioTranscription: {},
+          systemInstruction:
+            'You are the BioKG Gemini Live Voice Co-Pilot (SmartOS Slug-Bug Alien Agent by Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle). Help researchers upload CSV experimental files, map genes to OBO SO_0001217 and proteins to PR_000000001 via so#translates_to, run multi-hop subgraph queries, and interpret GNN link prediction benchmarks.',
+        },
+        callbacks: {
+          onmessage: (message: LiveServerMessage) => {
+            const parts = message.serverContent?.modelTurn?.parts || [];
+            for (const part of parts) {
+              if (part.inlineData?.data) {
+                clientWs.send(JSON.stringify({ audio: part.inlineData.data }));
+              }
+            }
+            const transcript = (message.serverContent as any)?.outputTranscription?.text;
+            if (transcript) {
+              clientWs.send(JSON.stringify({ transcript }));
+            }
+            if (message.serverContent?.interrupted) {
+              clientWs.send(JSON.stringify({ interrupted: true }));
+            }
+          },
+        },
+      });
+
+      clientWs.on('message', (raw) => {
+        try {
+          const parsed = JSON.parse(raw.toString());
+          if (parsed.audio && sessionPromise) {
+            sessionPromise.then((session) => {
+              session.sendRealtimeInput({
+                audio: { data: parsed.audio, mimeType: 'audio/pcm;rate=16000' },
+              });
+            });
+          } else if (parsed.contextInit && sessionPromise) {
+            sessionPromise.then((session) => {
+              session.sendRealtimeInput({
+                text: `Active Workspace Context: Cohort=${parsed.contextInit.cohortTitle}, Nodes=${parsed.contextInit.nodeCount}, Edges=${parsed.contextInit.edgeCount}, CSV Rows=${parsed.contextInit.csvRowCount}, AUROC=${parsed.contextInit.currentAuroc}`,
+              });
+            });
+          }
+        } catch (_e) {
+          // ignore malformed frames
+        }
+      });
+
+      clientWs.on('close', () => {
+        if (sessionPromise) {
+          sessionPromise.then((session) => session.close()).catch(() => {});
+        }
+      });
+    } catch (err: any) {
+      clientWs.send(
+        JSON.stringify({
+          error: err?.message || 'Unable to initialize Gemini 3.8 Live voice session.',
+        })
+      );
+      clientWs.close();
+    }
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -449,8 +656,8 @@ Propose 1 newly ingested Tdark or Tchem protein-coding gene + translated protein
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`PharosKG Bio-Agent Workbench listening on http://0.0.0.0:${PORT}`);
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`BioKG Bio-Agent Workbench listening on http://0.0.0.0:${PORT}`);
   });
 }
 

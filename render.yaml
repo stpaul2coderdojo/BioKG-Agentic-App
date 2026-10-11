@@ -1,10 +1,10 @@
 # Render Blueprint (render.yaml)
-# Project: PharosKG Bio-Agent Workbench — Global Bio-Agent Knowledge Graph Construction Challenge
+# Project: BioKG — Global Bio-Agent Knowledge Graph Construction Challenge
 # Author: Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle
 
 services:
   - type: web
-    name: pharoskg-bio-agent-workbench
+    name: biokg-agent-workbench
     runtime: node
     plan: starter
     region: oregon

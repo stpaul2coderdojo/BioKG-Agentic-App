@@ -14,7 +14,10 @@ import {
   IngestionAndSubgraphStudio,
   InteractiveGnnBenchmarkRunner,
   RenderBlueprintPanel,
+  LargeBenchmarkProfileMatrix,
 } from './components/IngestionSubgraphBenchmarkPanels';
+import { LARGE_PAN_OMICS_PRESET } from './data/largeBenchmarkSuite';
+import { GeminiLiveContextChatbot } from './components/GeminiLiveContextChatbot';
 import {
   Play,
   Download,
@@ -37,13 +40,15 @@ interface DeepEdgeAudit {
   verificationVerdict: string;
 }
 
+const ALL_PRESETS: PharosPreset[] = [...PHAROS_PRESETS, LARGE_PAN_OMICS_PRESET];
+
 export default function App() {
   const [activeSection, setActiveSection] = useState<ActiveSection>('workbench');
-  const [activePresetId, setActivePresetId] = useState<string>(PHAROS_PRESETS[0].id);
+  const [activePresetId, setActivePresetId] = useState<string>(ALL_PRESETS[0].id);
 
   // Mutable working state initialized from active preset
   const currentPreset: PharosPreset = useMemo(
-    () => PHAROS_PRESETS.find((p) => p.id === activePresetId) || PHAROS_PRESETS[0],
+    () => ALL_PRESETS.find((p) => p.id === activePresetId) || ALL_PRESETS[0],
     [activePresetId]
   );
 
@@ -98,7 +103,7 @@ export default function App() {
 
   // Switch preset handler
   const handleSelectPreset = (presetId: string) => {
-    const found = PHAROS_PRESETS.find((p) => p.id === presetId);
+    const found = ALL_PRESETS.find((p) => p.id === presetId);
     if (!found) return;
     setActivePresetId(presetId);
     setLiveBenchmarkOverride(null);
@@ -388,7 +393,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `pharos-bioagent-kgx-${activePresetId}.json`;
+    a.download = `biokg-agent-kgx-${activePresetId}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -482,7 +487,7 @@ export default function App() {
           }}
           className="font-display text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap"
         >
-          PharosKG
+          BioKG
         </a>
 
         {/* Zone 2: 6 clean text navigation links */}
@@ -740,7 +745,7 @@ export default function App() {
                   onChange={(e) => handleSelectPreset(e.target.value)}
                   className="w-full px-3 py-2 text-xs font-medium bg-[#F8FAFC] border border-slate-300 rounded text-slate-900 focus:outline-none focus:border-cyan-600"
                 >
-                  {PHAROS_PRESETS.map((preset) => (
+                  {ALL_PRESETS.map((preset) => (
                     <option key={preset.id} value={preset.id}>
                       {preset.title}
                     </option>
@@ -1215,6 +1220,36 @@ export default function App() {
            ===================================================================== */}
         {activeSection === 'benchmark' && (
           <div className="space-y-6">
+            {/* Multi-Scale Benchmarks Profile Matrix & Large Test Set Loader */}
+            <LargeBenchmarkProfileMatrix
+              onApplyProfileToChart={(prof) => {
+                const delta = prof.heldOutAuroc - currentPreset.benchmarkMetrics.agentEnrichedAuroc;
+                const updatedRoc = currentPreset.benchmarkMetrics.rocCurve.map((pt) => {
+                  if (pt.fpr === 0 || pt.fpr === 1) return pt;
+                  return {
+                    ...pt,
+                    tprAgent: Math.min(0.995, Math.max(0.15, +(pt.tprAgent + delta).toFixed(3))),
+                  };
+                });
+                setLiveBenchmarkOverride({
+                  agentAuroc: prof.heldOutAuroc,
+                  agentHitsAt10: prof.hitsAt10,
+                  agentMrr: prof.mrr,
+                  rocCurve: updatedRoc,
+                });
+                setAgentStatusBanner(
+                  `Plotted Profile: ${prof.modelName} (${prof.nodeCount}N / ${prof.tripleCount}E) · AUROC = ${prof.heldOutAuroc.toFixed(
+                    3
+                  )} · Tdark Recall@10 = ${prof.tdarkRecallAt10.toFixed(3)}`
+                );
+              }}
+              onLoadLargeTestSetCohort={() => {
+                handleSelectPreset(LARGE_PAN_OMICS_PRESET.id);
+                setMaxNodes(20);
+                setActiveSection('workbench');
+              }}
+            />
+
             {/* Interactive GNN Benchmark & Ablation Runner */}
             <InteractiveGnnBenchmarkRunner
               cohortTitle={currentPreset.title}
@@ -1719,32 +1754,51 @@ export default function App() {
            ===================================================================== */}
         {activeSection === 'docs' && (
           <div className="space-y-6">
-            {/* Authorship & Document Header */}
+            {/* Authorship, BioKG Branding & Synergy Robotics SmartOS Slug-Bug Alien Header */}
             <div className="bg-white border border-slate-200 p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div>
-                <div className="text-xs font-mono text-cyan-700">
-                  SYSTEM DOCUMENTATION & REPOSITORY README · OPEN SOURCE TRACK
-                </div>
-                <h2 className="text-xl font-semibold text-slate-900 mt-1">
-                  PharosKG Bio-Agent Workbench — Technical Documentation
-                </h2>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-700 font-mono">
-                  <span>
-                    AUTHOR: <strong className="text-slate-900">Dr. Bheemaiah Anil Kumar</strong>
-                  </span>
-                  <span aria-hidden="true">·</span>
-                  <span>
-                    ORGANIZATION: <strong className="text-slate-900">Synergy Robotics, Seattle</strong>
-                  </span>
-                  <span aria-hidden="true">·</span>
-                  <span>CHALLENGE: Bio-Agent KG Construction (Oct 6 – Nov 17, 2026)</span>
+              <div className="flex items-start sm:items-center gap-4">
+                <img
+                  src="/assets/boov-002_orig.jpg"
+                  alt="Synergy Robotics SmartOS Slug-Bug Alien Mascot"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    e.currentTarget.src =
+                      'https://synergyrobotics-ab.weebly.com/uploads/1/0/5/1/105161743/boov-002_orig.jpg';
+                  }}
+                  className="w-16 h-16 rounded border border-cyan-500/40 object-cover shrink-0 shadow-xs"
+                />
+                <div>
+                  <div className="text-xs font-mono text-cyan-700">
+                    SYSTEM DOCUMENTATION & REPOSITORY README · SMARTOS BIOKG EDITION
+                  </div>
+                  <h2 className="text-xl font-semibold text-slate-900 mt-1">
+                    BioKG — Autonomous Bio-Agent Knowledge Graph Workbench
+                  </h2>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-700 font-mono">
+                    <span>
+                      AUTHOR: <strong className="text-slate-900">Dr. Bheemaiah Anil Kumar</strong>
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      ORGANIZATION: <strong className="text-slate-900">Synergy Robotics, Seattle</strong>
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <a
+                      href="https://synergyrobotics-ab.weebly.com/smartos.html"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-cyan-700 hover:underline"
+                    >
+                      SmartOS Platform (synergyrobotics-ab.weebly.com/smartos.html)
+                    </a>
+                  </div>
                 </div>
               </div>
 
               <button
                 type="button"
                 onClick={() => {
-                  const readmeMarkdown = `# PharosKG Bio-Agent Workbench\n\n**Author:** Dr. Bheemaiah Anil Kumar  \n**Organization:** Synergy Robotics, Seattle, WA  \n**Competition:** Global Bio-Agent Knowledge Graph Construction Challenge (Oct 6 – Nov 17, 2026)\n\n## Overview\nAutonomous 5-stage AI Agent workbench (Ingest, Filter, Clean/Prune, Limit, Maintain) built for NIH Pharos structured datasets and OBO Foundry / Monarch BioLink standards (SO_0001217, PR_000000001, so#translates_to).\n`;
+                  const readmeMarkdown = `# BioKG — Autonomous Bio-Agent Knowledge Graph Workbench\n\n**Author:** Dr. Bheemaiah Anil Kumar  \n**Organization:** Synergy Robotics, Seattle, WA  \n**SmartOS Portal:** https://synergyrobotics-ab.weebly.com/smartos.html  \n**Competition:** Global Bio-Agent Knowledge Graph Construction Challenge (Oct 6 – Nov 17, 2026)\n\n## Overview\nAutonomous 5-stage AI Agent workbench (Ingest, Filter, Clean/Prune, Limit, Maintain) built for NIH Pharos structured datasets and OBO Foundry / Monarch BioLink standards (SO_0001217, PR_000000001, so#translates_to).\n`;
                   const blob = new Blob([readmeMarkdown], { type: 'text/markdown' });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
@@ -1760,6 +1814,125 @@ export default function App() {
               </button>
             </div>
 
+            {/* Synergy Robotics SmartOS Slug-Bug Alien & Holodeck / RavaTTT Showcase */}
+            <div className="bg-white border border-slate-200 p-6">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 mb-4">
+                <div>
+                  <div className="text-xs font-mono text-cyan-700">
+                    SYNERGY ROBOTICS — BC · SMARTOS & RAVATTT AGENT VISUAL IDENTITY
+                  </div>
+                  <h3 className="text-base font-semibold text-slate-900 mt-0.5">
+                    BioKG SmartOS Slug-Bug Alien Co-Pilot & Holodeck Plugin Assets
+                  </h3>
+                </div>
+                <a
+                  href="https://synergyrobotics-ab.weebly.com/smartos.html"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-mono text-cyan-700 hover:underline flex items-center gap-1"
+                >
+                  <span>synergyrobotics-ab.weebly.com/smartos.html</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                {/* Asset 1: Slug-Bug Alien Mascot (boov-002_orig.jpg) */}
+                <div className="border border-slate-200 bg-[#F8FAFC] p-3.5 flex flex-col justify-between">
+                  <div>
+                    <div className="aspect-4/3 w-full overflow-hidden bg-slate-900 border border-slate-200 mb-3">
+                      <img
+                        src="/assets/boov-002_orig.jpg"
+                        alt="SmartOS Slug-Bug Alien Emblem (boov-002_orig.jpg)"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.src =
+                            'https://synergyrobotics-ab.weebly.com/uploads/1/0/5/1/105161743/boov-002_orig.jpg';
+                        }}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="text-[10px] font-mono text-cyan-700">
+                      SMARTOS SLUG-BUG ALIEN AGENT
+                    </div>
+                    <h4 className="text-xs font-semibold text-slate-900 mt-0.5">
+                      BioKG Autonomous Swarm Mascot (Boov Slug-Bug Alien)
+                    </h4>
+                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                      Official SmartOS hero emblem from Synergy Robotics Seattle representing
+                      autonomous multi-hop traversal and alien-grade pattern recognition across dark
+                      omics space.
+                    </p>
+                  </div>
+                  <div className="mt-3 pt-2 border-t border-slate-200 text-[10px] font-mono text-slate-400 truncate">
+                    Source: /uploads/1/0/5/1/105161743/boov-002_orig.jpg
+                  </div>
+                </div>
+
+                {/* Asset 2: SmartOS RavaTTT Copilot Diagram */}
+                <div className="border border-slate-200 bg-[#F8FAFC] p-3.5 flex flex-col justify-between">
+                  <div>
+                    <div className="aspect-4/3 w-full overflow-hidden bg-slate-900 border border-slate-200 mb-3">
+                      <img
+                        src="/assets/smartos-copilot.png"
+                        alt="SmartOS RavaTTT Co-Pilot Architecture"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.src =
+                            'https://synergyrobotics-ab.weebly.com/uploads/1/0/5/1/105161743/s254876149395345543_p5_i2_w862.png';
+                        }}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="text-[10px] font-mono text-cyan-700">
+                      RAVATTT + NLDB PERSISTENCE
+                    </div>
+                    <h4 className="text-xs font-semibold text-slate-900 mt-0.5">
+                      SmartOS Co-Pilot & RavaTTT Automation Engine
+                    </h4>
+                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                      Integrates RavaTTT predictive analytics, automated NLDB persistence, and
+                      real-time streams with the BioKG 5-stage ingestion and GNN pruning pipeline.
+                    </p>
+                  </div>
+                  <div className="mt-3 pt-2 border-t border-slate-200 text-[10px] font-mono text-slate-400 truncate">
+                    Source: /uploads/1/0/5/1/105161743/s254876149395345543_p5_i2_w862.png
+                  </div>
+                </div>
+
+                {/* Asset 3: SmartOS Holodeck Backdrop */}
+                <div className="border border-slate-200 bg-[#F8FAFC] p-3.5 flex flex-col justify-between">
+                  <div>
+                    <div className="aspect-4/3 w-full overflow-hidden bg-slate-900 border border-slate-200 mb-3">
+                      <img
+                        src="/assets/smartos-bg.jpg"
+                        alt="SmartOS Holodeck Spatial Environment"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.src =
+                            'https://synergyrobotics-ab.weebly.com/uploads/1/0/5/1/105161743/background-images/1959573408.jpg';
+                        }}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="text-[10px] font-mono text-cyan-700">
+                      HOLODECK API 3D SPATIAL KG
+                    </div>
+                    <h4 className="text-xs font-semibold text-slate-900 mt-0.5">
+                      SmartOS Holodeck Virtual Graph Environment
+                    </h4>
+                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                      Powers immersive spatial exploration of multi-hop biological networks, OBO
+                      Foundry translation spines, and NIH Pharos Tdark target hypotheses.
+                    </p>
+                  </div>
+                  <div className="mt-3 pt-2 border-t border-slate-200 text-[10px] font-mono text-slate-400 truncate">
+                    Source: /uploads/1/0/5/1/105161743/background-images/1959573408.jpg
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Render Blueprint (render.yaml) & GitHub Deployment Specification */}
             <RenderBlueprintPanel />
 
@@ -1771,7 +1944,7 @@ export default function App() {
                 </h3>
                 <p className="text-xs text-slate-600 leading-relaxed">
                   Designed and architected by <strong>Dr. Bheemaiah Anil Kumar (Synergy Robotics, Seattle)</strong>,
-                  PharosKG addresses the core challenge of democratizing biomedical Knowledge Graph
+                  BioKG addresses the core challenge of democratizing biomedical Knowledge Graph
                   construction for bench scientists. Instead of requiring manual RDF/SPARQL curation,
                   an autonomous agent swarm executes five closed-loop stages:
                 </p>
@@ -1880,10 +2053,35 @@ export default function App() {
 
       {/* Quiet Clinical Footer */}
       <footer className="mt-12 border-t border-slate-200 bg-white px-6 py-4 text-xs text-slate-500 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          PharosKG Bio-Agent Workbench · Authored by <strong className="text-slate-800">Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle</strong> · Global Bio-Agent KG Challenge (2026)
+        <div className="flex items-center gap-2.5">
+          <img
+            src="/assets/boov-002_orig.jpg"
+            alt="BioKG SmartOS Slug-Bug Alien"
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              e.currentTarget.src =
+                'https://synergyrobotics-ab.weebly.com/uploads/1/0/5/1/105161743/boov-002_orig.jpg';
+            }}
+            className="w-6 h-6 rounded-full object-cover border border-slate-300"
+          />
+          <span>
+            <strong className="text-slate-900">BioKG</strong> Bio-Agent Workbench · Authored by{' '}
+            <strong className="text-slate-800">
+              Dr. Bheemaiah Anil Kumar, Synergy Robotics, Seattle
+            </strong>{' '}
+            · Global Bio-Agent KG Challenge (2026)
+          </span>
         </div>
         <div className="flex items-center gap-4 font-mono text-[11px]">
+          <a
+            href="https://synergyrobotics-ab.weebly.com/smartos.html"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:text-slate-900 text-cyan-700"
+          >
+            SmartOS (Synergy Robotics)
+          </a>
+          <span>·</span>
           <a
             href="https://pharos.nih.gov/about"
             target="_blank"
@@ -1912,6 +2110,35 @@ export default function App() {
           </a>
         </div>
       </footer>
+
+      {/* Gemini Live Context Co-Pilot (CSV Upload, Ingestion Guidance & Live Voice) */}
+      <GeminiLiveContextChatbot
+        workspaceContext={{
+          activeSection,
+          cohortTitle: currentPreset.title,
+          researchQuestion,
+          nodeCount: nodes.filter((n) => !n.isFilteredOut).length,
+          edgeCount: edges.length,
+          pruningThreshold,
+          maxNodes,
+          csvRowCount: rawTabularData.trim().split('\n').length,
+          csvSamplePreview: rawTabularData.slice(0, 400),
+          currentAuroc: activeBenchmarkMetrics.agentEnrichedAuroc,
+        }}
+        onApplyCsvAndIngest={(csvData, runPipelineNow) => {
+          setRawTabularData(csvData);
+          setAgentStatusBanner(
+            `Applied ${csvData.trim().split('\n').length}-row experimental CSV via Gemini Live Context Co-Pilot.`
+          );
+          if (runPipelineNow) {
+            setTimeout(() => {
+              handleRunAgentPipeline();
+            }, 60);
+          }
+        }}
+        onUpdateResearchQuestion={(q) => setResearchQuestion(q)}
+        onNavigateTab={(tab) => setActiveSection(tab)}
+      />
     </div>
   );
 }
